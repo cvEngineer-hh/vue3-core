@@ -125,7 +125,7 @@ export function createRenderer(options?: Options) {
     return key in el;
   }
 
-  function mountElement(vnode: VNODE | VNODE['children'], container: Container): void {
+  function mountElement(vnode: VNODE | VNODE['children'], container: Container, anchor = null as ChildNode | null): void {
     if (Array.isArray(vnode)) return vnode.forEach(node => mountElement(node, container));
     
     if (typeof vnode === 'object') {
@@ -147,7 +147,7 @@ export function createRenderer(options?: Options) {
             updateProps(el, key, vnode.props[key]);
           }
         }
-        insert(container, el, null);
+        insert(container, el, anchor);
         mountElement(vnode.children, el);
       }
     };
@@ -225,6 +225,61 @@ export function createRenderer(options?: Options) {
       }
     }
   };
+
+  // 快速diff算法
+  function patchChildren_fast(n1: VNODE, n2: VNODE, el: VNODE['el']) {
+    function emptyEl() { 
+      if (typeof n2.children === 'string') { 
+        setContentText(el, '');
+      }
+  
+      if (Array.isArray(n2.children)) { 
+        n2.children.forEach(n => unmount(el))
+      }
+    }
+    if (typeof n1.children === 'string') { 
+      emptyEl();
+      setContentText(el, n1.children);
+    }
+  
+    if (Array.isArray(n1.children)) { 
+      if (!Array.isArray(n2.children)) {
+        emptyEl();
+        mountElement(n1.children, el);
+      } else {
+
+        // 先检查新旧节点中不需要移动的节点，也就是节点的首尾
+        let start = 0;
+        while (n1.children[start]?.key == n2.children[start]?.key) {
+          patch(n2.children[start], n1.children[start], el);
+          start++;
+        }
+
+        let newEndIndex = n1.children.length - 1;
+        let oldEndIndex = n2.children.length - 1;
+        while (n1.children[newEndIndex].key == n2.children[oldEndIndex].key) {
+          patch(n2.children[oldEndIndex], n1.children[newEndIndex], el);
+          newEndIndex--;
+          oldEndIndex--;
+        }
+
+        // 通过 newEndIndex 查找新增的元素，手动挂载
+        if(oldEndIndex < start && newEndIndex >= start) {
+          for(let i = start; i <= newEndIndex; i++) {
+            mountElement(n1.children[i], el, n1.children[i - 1].el.nextSibling);
+          }
+        }
+
+        if(newEndIndex < start && oldEndIndex >= start) {
+          for(let i = start; i <= oldEndIndex; i++) {
+            unmount(n2.children[i].el);
+          }
+        }
+      }
+    }
+
+  };
+
   function patchChildren(n1: VNODE, n2: VNODE, el: VNODE['el']) {
     function emptyEl() { 
       if (typeof n2.children === 'string') { 
@@ -285,7 +340,7 @@ export function createRenderer(options?: Options) {
     const el = n1.el = n2.el;
 
     patchProps(n1.props, n2.props, el);
-    patchChildren(n1, n2, el);
+    patchChildren_fast(n1, n2, el);
   };
 
   function patch(oldVNode: VNODE | undefined, newVNode: VNODE, container: Container) { 
