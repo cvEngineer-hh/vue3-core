@@ -227,6 +227,61 @@ export function createRenderer(options?: Options) {
     }
   };
 
+  // 快速diff算法
+  function patchChildren_fast(n1: VNODE, n2: VNODE, el: VNODE['el']) {
+    function emptyEl() { 
+      if (typeof n2.children === 'string') { 
+        setContentText(el, '');
+      }
+  
+      if (Array.isArray(n2.children)) { 
+        n2.children.forEach(n => unmount(el))
+      }
+    }
+    if (typeof n1.children === 'string') { 
+      emptyEl();
+      setContentText(el, n1.children);
+    }
+  
+    if (Array.isArray(n1.children)) { 
+      if (!Array.isArray(n2.children)) {
+        emptyEl();
+        mountElement(n1.children, el);
+      } else {
+
+        // 先检查新旧节点中不需要移动的节点，也就是节点的首尾
+        let start = 0;
+        while (n1.children[start]?.key == n2.children[start]?.key) {
+          patch(n2.children[start], n1.children[start], el);
+          start++;
+        }
+
+        let newEndIndex = n1.children.length - 1;
+        let oldEndIndex = n2.children.length - 1;
+        while (n1.children[newEndIndex].key == n2.children[oldEndIndex].key) {
+          patch(n2.children[oldEndIndex], n1.children[newEndIndex], el);
+          newEndIndex--;
+          oldEndIndex--;
+        }
+
+        // 通过 newEndIndex 查找新增的元素，手动挂载
+        if(oldEndIndex < start && newEndIndex >= start) {
+          for(let i = start; i <= newEndIndex; i++) {
+            mountElement(n1.children[i], el, n1.children[i - 1].el.nextSibling);
+          }
+        }
+
+        if(newEndIndex < start && oldEndIndex >= start) {
+          for(let i = start; i <= oldEndIndex; i++) {
+            unmount(n2.children[i].el);
+          }
+        }
+      }
+    }
+
+  };
+
+
   // 基础diff，遍历新节点，搜索旧节点中是否存在可复用的节点，找出位置后使用insertBefore移动节点
   // 该方式只能一步一步移动节点，部分情况下的操作不够精简，查找出的移动节点的方式还有优化空间
   function patchChildren_V2(n1: VNODE, n2: VNODE, el: VNODE['el']) {
@@ -384,7 +439,7 @@ export function createRenderer(options?: Options) {
     const el = n1.el = n2.el;
 
     patchProps(n1.props, n2.props, el);
-    patchChildren(n1, n2, el);
+    patchChildren_fast(n1, n2, el);
   };
 
   function patch(oldVNode: VNODE | undefined, newVNode: VNODE, container: Container) { 
