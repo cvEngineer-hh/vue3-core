@@ -2,7 +2,7 @@ import { reactive, effect } from "@vue/reactivity";
 import { createRenderer, VNODE, specialVNodeType } from "packages/renderer";
 
 const obj = reactive({ color: 'blue' });
-const obj2 = reactive(['张三', '李四', '王五'])
+const obj2 = reactive(['1', '2', '3', '5'])
 
 window.onload = () => { 
   window.obj = obj
@@ -87,7 +87,7 @@ window.onload = () => {
                       // children: obj.color === 'red' ? [{type: specialVNodeType.Fragment, children: obj2.map(item => ({ type: 'div', children: item }))}] : '测试',
 
                       type: 'div',
-                      children: ['王五',  '李四', '测试', ].map(item => ({ type: 'div', children: item, key: item, })),
+                      children: ['2',  '1', '4', '3'].map(item => ({ type: 'div', children: item, key: item, })),
                       props: {
                         className: {
                           test: true,

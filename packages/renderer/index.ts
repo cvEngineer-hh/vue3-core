@@ -23,7 +23,7 @@ export type VNODE = {
   type: keyof HTMLElementTagNameMap | number,
   key?: string,
   props?: Props,
-  children?: VNODE | VNODE[] | string,
+  children?: VNODE[] | string,
 }
 
 interface Container extends HTMLElement { 
@@ -125,7 +125,7 @@ export function createRenderer(options?: Options) {
     return key in el;
   }
 
-  function mountElement(vnode: VNODE | VNODE['children'], container: Container): void {
+  function mountElement(vnode: VNODE | VNODE['children'], container: Container, anchor: HTMLElement | ChildNode | null): void {
     if (Array.isArray(vnode)) return vnode.forEach(node => mountElement(node, container));
     
     if (typeof vnode === 'object') {
@@ -147,7 +147,8 @@ export function createRenderer(options?: Options) {
             updateProps(el, key, vnode.props[key]);
           }
         }
-        insert(container, el, null);
+
+        insert(container, el, anchor);
         mountElement(vnode.children, el);
       }
     };
@@ -181,19 +182,19 @@ export function createRenderer(options?: Options) {
     }
   };
 
-  // 更新节点
-  function patchChildren_v1(n1: VNODE, n2: VNODE, el: VNODE['el']) { 
-    function emptyEl() { 
-      if (typeof n2.children === 'string') { 
-        setContentText(el, '');
-      }
-  
-      if (Array.isArray(n2.children)) { 
-        n2.children.forEach(n => unmount(el))
-      }
+  // 更新节点，只比对新旧节点的公共长度，剩余的部分通过判断新旧节点长度进行新增或者删除操作，性能较差
+  function emptyEl(node: VNODE, el: VNODE['el']) { 
+    if (typeof node.children === 'string') { 
+      setContentText(el, '');
     }
+
+    if (Array.isArray(node.children)) { 
+      node.children.forEach(n => unmount(n.el))
+    }
+  }
+  function patchChildren_v1(n1: VNODE, n2: VNODE, el: VNODE['el']) { 
     if (typeof n1.children === 'string') { 
-      emptyEl();
+      emptyEl(n2, el);
       setContentText(el, n1.children);
     }
   
@@ -220,30 +221,23 @@ export function createRenderer(options?: Options) {
           }
         }
       } else { 
-        emptyEl();
+        emptyEl(n2, el);
         mountElement(n1.children, el);
       }
     }
   };
-  function patchChildren(n1: VNODE, n2: VNODE, el: VNODE['el']) {
-    function emptyEl() { 
-      if (typeof n2.children === 'string') { 
-        setContentText(el, '');
-      }
-  
-      if (Array.isArray(n2.children)) { 
-        n2.children.forEach(n => unmount(el))
-      }
-    }
-    
+
+  // 基础diff，遍历新节点，搜索旧节点中是否存在可复用的节点，找出位置后使用insertBefore移动节点
+  // 该方式只能一步一步移动节点，部分情况下的操作不够精简，查找出的移动节点的方式还有优化空间
+  function patchChildren_V2(n1: VNODE, n2: VNODE, el: VNODE['el']) {
     if (typeof n1.children === 'string') { 
-      emptyEl();
+      emptyEl(n2, el);
       setContentText(el, n1.children);
     }
   
     if (Array.isArray(n1.children)) { 
       if (typeof n2.children === 'string') { 
-        emptyEl();
+        emptyEl(n2, el);
         mountElement(n1.children, el);
         return;
       }
@@ -280,6 +274,111 @@ export function createRenderer(options?: Options) {
       })
     }
   }
+  
+  // 双端diff，取新旧节点的首尾节点逐次比较，并逐渐向节点中部收缩索引
+  function patchChildren(n1: VNODE, n2: VNODE, el: VNODE['el']) { 
+    // debugger
+
+    if (typeof n1.children === 'string') { 
+      emptyEl(n2, el);
+      setContentText(el, n1.children);
+      return;
+    }
+  
+    if (Array.isArray(n1.children)) {
+      if (!n2.children) return mountElement(n1.children, el);
+      if (typeof n2.children === 'string') {
+        emptyEl(n2, el);
+        mountElement(n1.children, el);
+        return;
+      }
+
+      let newNodeStartIndex = 0,
+        oldNodeStartIndex = 0,
+        newNodeEndIndex = n1.children.length - 1,
+        oldNodeEndIndex = n2.children.length - 1;
+      
+      while (newNodeStartIndex <= newNodeEndIndex && oldNodeStartIndex <= oldNodeEndIndex) { 
+        const newNodeStart = n1.children[newNodeStartIndex];
+        const oldNodeStart = n2.children[oldNodeStartIndex];
+        const newNodeEnd = n1.children[newNodeEndIndex];
+        const oldNodeEnd = n2.children[oldNodeEndIndex];
+        
+        if (!oldNodeStart.el) { 
+          oldNodeStartIndex++;
+          continue;
+        };
+        if (!oldNodeEnd.el) { 
+          oldNodeEndIndex--;
+          continue;
+        };
+
+        // 新旧节点的首（尾）节点可以复用时，节点不需要移动
+        if (newNodeStart.key === oldNodeStart.key) { 
+          patch(oldNodeStart, newNodeStart, el);
+          newNodeStartIndex++;
+          oldNodeStartIndex++;
+          continue;
+        };
+        if (newNodeEnd.key === oldNodeEnd.key) { 
+          patch(oldNodeEnd, newNodeEnd, el);
+          newNodeEndIndex--;
+          oldNodeEndIndex--;
+          continue;
+        };
+
+        // 新节点的头部节点key 与 旧节点的尾部节点key 相等时，说明旧节点的尾部节点被移动到 oldNodeStart 的上方
+        if (newNodeStart.key === oldNodeEnd.key) {
+          patch(oldNodeEnd, newNodeStart, oldNodeEnd.el);
+          insert(el, oldNodeEnd.el, oldNodeStart.el);
+          newNodeStartIndex++;
+          oldNodeEndIndex--;
+          continue;
+        }
+
+          // 新节点的尾部节点key 与 旧节点的头部节点key 相等时，说明当前旧节点的头部节点被移动到尾部，也就是 oldNodeEnd 的下方
+        if (oldNodeStart.key === newNodeEnd.key) {
+          patch(oldNodeStart, newNodeEnd, oldNodeStart.el);
+          insert(el, oldNodeStart.el, oldNodeEnd.el.nextSibling);
+          oldNodeStartIndex++;
+          newNodeEndIndex--;
+          continue;
+        }
+
+        const i = n2.children.findIndex(oldNode => oldNode.key === newNodeStart.key);
+        
+        // 当四个节点都匹配不上时，直接在旧节点中查找头节点并更新
+        if (i > 0) {
+          const oldNode = n2.children[i];
+          patch(oldNode, newNodeStart, el);
+          insert(el, newNodeStart.el, oldNodeStart.el);
+          oldNode.el = undefined;// 将el置空，用来表示该节点已被复用
+          newNodeStartIndex++;
+        } else { 
+          // 没有找到可复用的节点时，直接挂载
+          const lastnode = n1.children[newNodeStartIndex - 1]?.el;
+          mountElement(newNodeStart, el, lastnode?.nextSibling);
+          newNodeStartIndex++;
+        }
+      }
+
+      // 如果最终旧节点全部被复用后，剩下的节点便都是新增节点
+      if (oldNodeStartIndex > oldNodeEndIndex && newNodeStartIndex <= newNodeEndIndex) { 
+        const anchor = n1.children[newNodeEndIndex + 1]?.el;
+        for (let index = newNodeStartIndex; index <= newNodeEndIndex; index++) {
+          mountElement(n1.children[index], el, anchor);
+        }
+      }
+
+      if (newNodeStartIndex > newNodeEndIndex && oldNodeStartIndex <= oldNodeEndIndex) { 
+        for (let index = oldNodeStartIndex; index <= oldNodeEndIndex; index++) {
+          unmount(n2.children[index].el);
+        }
+      }
+      
+    }
+  }
+
   // n1: newVNode, n2: oldVNode
   function patchElement(n1: VNODE, n2: VNODE, container: Container) { 
     const el = n1.el = n2.el;
