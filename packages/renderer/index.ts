@@ -1,3 +1,5 @@
+import { getSequence } from '../shared/src/index';
+
 interface Props extends Omit<HTMLElement, 'className' | 'style'> { 
   style: Partial<CSSStyleDeclaration>
   className: { [key: string]: boolean } | any[] | string,
@@ -125,7 +127,7 @@ export function createRenderer(options?: Options) {
     return key in el;
   }
 
-  function mountElement(vnode: VNODE | VNODE['children'], container: Container, anchor: HTMLElement | ChildNode | null): void {
+  function mountElement(vnode: VNODE | VNODE['children'], container: Container, anchor?: HTMLElement | ChildNode | null): void {
     if (Array.isArray(vnode)) return vnode.forEach(node => mountElement(node, container));
     
     if (typeof vnode === 'object') {
@@ -148,7 +150,7 @@ export function createRenderer(options?: Options) {
           }
         }
 
-        insert(container, el, anchor);
+        insert(container, el, anchor || null);
         mountElement(vnode.children, el);
       }
     };
@@ -251,10 +253,11 @@ export function createRenderer(options?: Options) {
 
         // 先检查新旧节点中不需要移动的节点，也就是节点的首尾
         let start = 0;
-        while (n1.children[start]?.key == n2.children[start]?.key) {
+        while (n1.children[start] && n1.children[start]?.key == n2.children[start]?.key) {
           patch(n2.children[start], n1.children[start], el);
           start++;
         }
+        if (start === n1.children.length) return;
 
         let newEndIndex = n1.children.length - 1;
         let oldEndIndex = n2.children.length - 1;
@@ -276,6 +279,40 @@ export function createRenderer(options?: Options) {
             unmount(n2.children[i].el);
           }
         }
+
+        // 用于存放新节点在旧节点中的位置，若没有则为-1
+        const source: number[] = (new Array(newEndIndex - start + 1)).fill(-1);
+
+        let isMove = false;
+        let max = 0;
+        let mountedNum = 0;
+        for (let i = 0; i < oldEndIndex; i++) {
+          const oldNode = n2.children[i]
+          const j = n1.children.findIndex(newNode => newNode.key === oldNode.key);
+
+          if (mountedNum >= n1.children.length) { 
+            unmount(n2.children[i].el);
+            continue;
+          }
+          if (j == -1) { 
+            unmount(n2.children[i].el);
+            continue;
+          }
+          patch(oldNode, n1.children[j], el);
+          mountedNum++;
+        }
+
+        if (!isMove) return;
+
+        const sequence = getSequence(source);
+        for (let i = source.length - 1; i > 0; i--) {
+          if (source[i] === -1) {
+            mountElement(n1.children[i], el, n1.children[i + 1].el);
+          } else if (sequence.includes(i)) {
+            insert(el, n1.children[i].el, n1.children[i + 1]?.el);
+          }
+        }
+        
       }
     }
 
