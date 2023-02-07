@@ -1,89 +1,123 @@
-interface Effect {
-  (): any,
-  deps: EffectSet[],
+import type { ObjectOfStringKey } from '../../shared/src/types';
+import type { Effect, Bucket, EffectOptions } from './types';
+
+let activeEffect: Effect | undefined;
+const activeEffectQueue: Effect[] = [];
+
+function cleanupEffectOfOverdue(effectFn: Effect) { 
+  effectFn.deps.forEach(effectSet => effectSet.delete(effectFn));
+
+  effectFn.deps.length = 0;
 };
-type EffectSet = Set<Effect>;
-type TargetMap = Map<string | symbol, EffectSet>;
-type EffectMap = WeakMap<object, TargetMap>;
 
-type objectOfStringKey = { [key in string]: any };
-
-const effectMap: EffectMap = new WeakMap();
-function getEffectSet<T extends objectOfStringKey>(target: T, key: keyof T | symbol): EffectSet { 
-  let targetMap = effectMap.get(target);
-  if (!targetMap) { 
-    effectMap.set(target, (targetMap = new Map()));
+export function effect(cb: () => any, options?: EffectOptions) { 
+  // 在执行副作用函数时，可能需要调用一些钩子函数（options中的），为了防止污染原本的函数，这里需要额外包裹一层
+  const EffectFn: Effect = () => {
+    cleanupEffectOfOverdue(EffectFn);
+    activeEffect = EffectFn;
+    // 处理 effect 嵌套时。activeEffect指向丢失的问题
+    // 收集依赖之前将副作用函数压入栈，依赖收集完后将副作用函数从栈中弹出
+    activeEffectQueue.push(EffectFn);
+    let res = cb();
+    activeEffectQueue.pop();
+    activeEffect = activeEffectQueue[activeEffectQueue.length - 1];
+    return res;
+  };
+  EffectFn.options = options;
+  EffectFn.deps = [];
+  
+  if (options?.lazy) { 
+    return EffectFn;
   }
+  return EffectFn();
+};
 
-  let effectSet = targetMap.get(key as string);
-  if (!effectSet) { 
-    targetMap.set(key as string, (effectSet = new Set()));
+export function reactive<T extends ObjectOfStringKey>(raw: T): T { 
+  return new Proxy(raw, {
+    get(target, key) {
+      // 暂时不考虑属性为 symbol 的情况
+      if (typeof key === 'symbol') return;
+      
+      track(target, key);
+      return Reflect.get(target, key);
+    },
+
+    set(target, key, value) {
+      // 暂时不考虑属性为 symbol 的情况
+      if (typeof key === 'symbol') return false;
+      if (Reflect.get(target, key) === value) return true;
+
+      // 这里需要先赋值，以便后续执行副作用函数时能获取到被正确更新的值（在computed处踩坑）
+      const res = Reflect.set(target, key, value);
+      trigger(target, key);
+      return res;
+    },
+  });
+};
+
+export function computed(cb: () => any) { 
+  let isDirty = true;
+  const effectFn = effect(cb, {
+    lazy: true,
+    scheduler(fn) { 
+      fn();
+      isDirty = true;
+      trigger(obj, 'value');
+    }
+  });
+
+  let res: any;
+  const obj = {
+    get value() {
+      if (isDirty) {
+        res = effectFn();
+        isDirty = false;
+      }
+      track(obj, 'value');
+      return res;
+    }
   }
+  return obj;
+};
 
-  return effectSet;
-}
-
-// 收集依赖的同时
-function track<T extends objectOfStringKey>(target: T, key: keyof T | symbol): void { 
+const bucket: Bucket = new WeakMap();
+function track(target: ObjectOfStringKey, key: string) { 
   if (!activeEffect) return;
-  const effectSet = getEffectSet(target, key);
+
+  let targetMap = bucket.get(target);
+  if (!targetMap) { 
+    bucket.set(target, (targetMap = new Map()));
+  }
+
+  let effectSet = targetMap.get(key);
+  if (!effectSet) { 
+    targetMap.set(key, (effectSet = new Set()));
+  }
 
   effectSet.add(activeEffect);
   activeEffect.deps.push(effectSet);
 };
 
-function trigger<T extends objectOfStringKey>(target: T, key: keyof T | symbol): void { 
-  const targetMap = effectMap.get(target);
+function trigger(target: ObjectOfStringKey, key: string) { 
+  const targetMap = bucket.get(target);
   if (!targetMap) return;
-  const effectSet = targetMap.get(key as string);
-  if (!effectSet) return;
 
-  const newEffectSet = new Set(effectSet);
+  const newEffectSet = new Set<Effect>(targetMap.get(key));
+  newEffectSet.forEach(effectFn => { 
+    // 当在副作用函数中同时读取、修改自身，会引起无限递归
+    // 原因在于：触发 set 函数时会循环检查依赖项并执行依赖，而依赖中的调用又会触发 get 收集依赖，在
+    if (activeEffect === effectFn) return;
 
-  newEffectSet.forEach(effect => { 
-    effect !== activeEffect && effect();
-  });
-}
+    const executeEffect = () => {
+      effectFn();
+      effectFn?.options?.onTrigger?.(target, key);
+    };
 
-export function reactive<T extends {[key in string]: any}>(raw: T): T { 
-  return new Proxy(raw, {
-    get(target, key, receiver) {
-      track<T>(target, key);
-      
-      return Reflect.get(target, key, receiver);
-    },
-
-    set(target, key, value, receiver) {
-      const res = Reflect.set(target, key, value);
-      trigger<T>(target, key);
-
-      return res;
+    // 将函数执行权抛出
+    if (Reflect.has(effectFn?.options || {}, 'scheduler')) {
+      effectFn.options?.scheduler?.(executeEffect as Effect);
+    } else { 
+      executeEffect();
     }
-  }) as T;
-}
-
-function clearOverdueEffect(effect: Effect) { 
-  effect.deps.forEach(effectSet => {
-    effectSet.clear();
   });
-
-  effect.deps.length = 0;
-}
-
-let activeEffect: Effect;
-const activeEffectQueue: Effect[] = [];
-export function effect(cb: Function) {
-  const effectFn: Effect = () => {
-    clearOverdueEffect(effectFn);
-    activeEffect = effectFn;
-    // 处理 watchEffect嵌套时。activeEffect指向丢失的问题
-    // 收集依赖之前将副作用函数压入栈，依赖收集完后将副作用函数从栈中弹出
-    activeEffectQueue.push(effectFn);
-    cb();
-    activeEffectQueue.pop();
-    activeEffect = activeEffectQueue[activeEffectQueue.length - 1];
-  };
-  effectFn.deps = [];
-  
-  effectFn();
-}
+};
