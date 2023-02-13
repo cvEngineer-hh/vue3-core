@@ -10,7 +10,7 @@ function cleanupEffectOfOverdue(effectFn: Effect) {
   effectFn.deps.length = 0;
 };
 
-export function effect(cb: () => any, options?: EffectOptions) { 
+export function effect(cb: () => any | void, options?: EffectOptions) { 
   // 在执行副作用函数时，可能需要调用一些钩子函数（options中的），为了防止污染原本的函数，这里需要额外包裹一层
   const EffectFn: Effect = () => {
     cleanupEffectOfOverdue(EffectFn);
