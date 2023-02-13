@@ -9,6 +9,21 @@ export function microtasksThrottle(fn: Function) {
   })
 }
 
+// 开启缓冲队列
+const queue = new Set<Function>();
+let isFinish = true;
+export function queueJob(job: () => void) { 
+  if (!isFinish) return;
+
+  queue.add(job);
+  isFinish = false;
+  Promise.resolve().then(() => {
+    isFinish = true;
+    queue.forEach(job => job());
+    queue.clear();
+  });
+}
+
 export function getSequence(arr: number[]) {
   const p = []
   const result = [0] //  存储最长增长子序列的索引数组
