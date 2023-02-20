@@ -3,12 +3,24 @@ import { createReactive, effect, trigger, track } from './effect';
 
 export * from './effect';
 
+export function ref<T extends string | number | boolean | null>(value: T) { 
+  const obj = { value };
+  // 该属性用于区分 ref(value) 与 reactive({ value })
+  Reflect.defineProperty(obj, '_is_ref', true);
+
+  return obj;
+};
+
 export function reactive<T extends ObjectOfStringKey>(raw: T): T { 
-  return createReactive(raw, true);
+  return createReactive(raw, false);
 };
 
 export function shallowReactive<T extends ObjectOfStringKey>(raw: T): T { 
-  return createReactive(raw, false);
+  return createReactive(raw, true);
+};
+
+export function readonlyReactive<T extends ObjectOfStringKey>(raw: T): T { 
+  return createReactive(raw, false, true);
 };
 
 export function computed(cb: () => any) { 
