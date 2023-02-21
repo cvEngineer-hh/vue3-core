@@ -1,6 +1,7 @@
 require('fs').readFile('.env.development', 'utf-8', (err, data) => {
   if(err) {
-    console.log(err, '错误');
+    console.log('未设置.env.development文件');
+    build({});
     return;
   }
 
@@ -8,7 +9,7 @@ require('fs').readFile('.env.development', 'utf-8', (err, data) => {
 });
 
 const args = require('minimist')(process.argv.slice(2));
-const { createScerver } = require('./createServer');
+const { scerver } = require('./createServer');
 function build(env) {
   const path = require('path');
   const format = args.f || 'esm';
@@ -43,7 +44,7 @@ function build(env) {
       `
     );
     
-    createScerver();
+    scerver();
   })
 };
 
