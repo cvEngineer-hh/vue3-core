@@ -1,16 +1,55 @@
-const args = require('minimist')(process.argv.slice(2));
-const format = args.f;
-const fileName = args._[0] // || 'reactivity';
+require('fs').readFile('.env.development', 'utf-8', (err, data) => {
+  if(err) {
+    console.log(err, '错误');
+    return;
+  }
 
-console.log(fileName, 'fileName');
-require('esbuild').build({
-  format,
-  entryPoints: [fileName ? `packages/${fileName}/src/index` : 'packages/usage/index'],
-  bundle: true,
-  watch: true,
-  outfile: fileName
-    ? `dev/Vue${fileName.substring(0, 1).toUpperCase()}${fileName.substring(1).toLowerCase()}.js`
-    : 'dev/index.js'
-}).then(res => { 
-  console.log('--------------启动-------------------');
-})
+  build(parseEnv(data));
+});
+
+const args = require('minimist')(process.argv.slice(2));
+const { createScerver } = require('./createServer');
+function build(env) {
+  const path = require('path');
+  const format = args.f || 'esm';
+
+  console.log(args, 'args');
+
+  require('esbuild').build({
+    format,
+    bundle: true,
+    watch: {
+      onRebuild(error) {
+        if(error) console.log('编译失败：', error);
+        console.log('更新');
+      }
+    },
+    define: { dev: args._.includes('dev'), ...env },
+    entryPoints: [path.join(__dirname, '../src/main.ts')],
+    outfile: '/dev/test.js'
+  }).then(res => {
+    console.log(
+`                ⠰⢷⢿.
+            ⠀⠀⠀⠀⠀⣼⣷⣄
+            ⠀⠀⣤⣿⣇⣿⣿⣧⣿⡄
+            ⢴⠾⠋⠀⠀⠻⣿⣷⣿⣿⡀
+            ○ ⠀⢀⣿⣿⡿⢿⠈⣿
+            ⠀⠀⠀⢠⣿⡿⠁⠀⡊⠀⠙
+            ⠀⠀⠀⢿⣿⠀⠀⠹⣿
+            ⠀⠀⠀⠀⠹⣷⡀⠀⣿⡄
+            ⠀⠀⠀⠀⣀⣼⣿⠀⢈⣧.
+
+            神兽保佑 永无bug
+      `
+    );
+    
+    createScerver();
+  })
+};
+
+function parseEnv(data) {
+  const arr = data.split('\r')
+    .filter(item => !item.includes('#'))
+    .map(item => item.replace(/\/n|\s/g, '').split('='))
+  return Object.fromEntries(arr);
+};
