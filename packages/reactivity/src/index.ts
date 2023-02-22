@@ -54,7 +54,7 @@ export function computed(cb: () => any) {
 
 type WatchSource = () => any | ObjectOfStringKey;
 export function watch(
-  source: WatchSource | WatchSource[],
+  source: WatchSource | WatchSource[] | any[],
   cb: (value: any, oldValue: any, onInvalidate: (cb: Function) => void) => any
 ) {
   let handleInvalidate: Function;

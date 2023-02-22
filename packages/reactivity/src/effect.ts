@@ -39,8 +39,8 @@ const ITERATE_KEY = Symbol();
 export function createReactive<T extends ObjectOfStringKey>(raw: T, isShallow: boolean, isReadonly: boolean = false): T { 
   return new Proxy(raw, {
     get(target, key, receiver) {
-      if (isShallow && key === 'raw') return target;
-      // 只读属性不会被修改，不需要收集
+      if (key === 'raw') return target;
+      // 只读属性不会被修改，不需要收集s
       !isReadonly && track(target, key);
       // 当被代理对象中有一个访问器属性 get value() { return this.name }
       //  此时的this指向原始对象，无法触发set拦截函数
@@ -58,12 +58,26 @@ export function createReactive<T extends ObjectOfStringKey>(raw: T, isShallow: b
         return true;
       };
 
-      const type = Reflect.has(target, key) ? optionType.set : optionType.add;
       if (Reflect.get(target, key) === value) return true;
 
+      // 对于数组，设置元素的时候元素位置可能会超出自身长度，此时相当于 Object 的add，需要特殊处理
+      const type = Array.isArray(target) && key !== 'length'
+        ? Number(key) < target.length ? optionType.set : optionType.add
+        : Reflect.has(target, key) ? optionType.set : optionType.add;
+
       // 这里需要先赋值，以便后续执行副作用函数时能获取到被正确更新的值
+      const oldValue = Reflect.get(target, key);
       const res = Reflect.set(target, key, value, receiver);
-      trigger(target, key, type);
+
+      // 判断新旧值时的校验
+      const condition = [
+        oldValue !== value,
+        target === receiver.raw,
+        !Number.isNaN(oldValue) || !Number.isNaN(value),
+      ];
+      if (condition.every(item => item)) { 
+        trigger(target, key, type, value);
+      };
       return res;
     },
 
@@ -115,15 +129,28 @@ export function track(target: ObjectOfStringKey, key: string | symbol) {
   activeEffect.deps.push(effectSet);
 };
 
-export function trigger(target: object, key: string | symbol, type: optionType = optionType.add) { 
+export function trigger(target: object, key: string | symbol, type: optionType = optionType.add, newValue?: any) { 
   const targetMap = bucket.get(target);
   if (!targetMap) return;
 
   const newEffectSet = new Set<Effect>(targetMap.get(key));
+
   // 因为属性的 添加 和 删除 都会影响迭代器的结果，所以此处加入迭代器收集的依赖
-  if (type === optionType.add || type === optionType.del) { 
-    targetMap.get(ITERATE_KEY)?.forEach(iterateEffect => newEffectSet.add(iterateEffect));
-  };
+  if (type === optionType.add || type === optionType.del) {
+    // 数组的特殊处理，数组长度变化后去除与length有关的函数执行
+    if (Array.isArray(target)) {
+      targetMap.get('length')?.forEach(iterateEffect => newEffectSet.add(iterateEffect));
+    } else {
+      targetMap.get(ITERATE_KEY)?.forEach(iterateEffect => newEffectSet.add(iterateEffect));
+    }
+  } else { 
+    // 修改数组的 length 也会影响到数组，影响范围为新长度之后的元素，这里只需要取出受影响的元素依赖
+    if (Array.isArray(target) && key === 'length') { 
+      targetMap.forEach((effectSet, key) =>
+        Number(key) >= newValue && effectSet.forEach(effect => newEffectSet.add(effect))
+      );
+    }
+  }
 
   newEffectSet.forEach(effectFn => { 
     // 当在副作用函数中同时读取、修改自身时，会导致在get拦截函数还未执行完毕时再调用set函数，如此无限循环
