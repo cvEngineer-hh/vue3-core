@@ -1,7 +1,7 @@
 # vue3-core
 
 
-&emsp;使用build.js构建，运行：
+&emsp;使用esbuild.js构建，运行：
 `pnpm i`
 `pnpm run dev`
 

@@ -1,5 +1,5 @@
 import { queueJob } from '@vue/shared';
-import { reactive } from '.';
+import { reactive, readonly } from '.';
 import type { ObjectOfStringKey } from '../../shared/src/types';
 import { Effect, Bucket, EffectOptions, optionType } from './types';
 
@@ -46,8 +46,8 @@ export function createReactive<T extends ObjectOfStringKey>(raw: T, isShallow: b
       //  此时的this指向原始对象，无法触发set拦截函数
       // reflect接受第三个参数，作为访问器属性中的this
       const res = Reflect.get(target, key, receiver);
-      if (!isShallow && typeof res === 'object') { 
-        return reactive(res);
+      if (typeof res === 'object' && res !== null) { 
+        return isReadonly ? readonly(res) : reactive(res);
       }
       return res;
     },

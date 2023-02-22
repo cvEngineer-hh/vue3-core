@@ -19,7 +19,11 @@ export function shallowReactive<T extends ObjectOfStringKey>(raw: T): T {
   return createReactive(raw, true);
 };
 
-export function readonlyReactive<T extends ObjectOfStringKey>(raw: T): T { 
+export function readonly<T extends ObjectOfStringKey>(raw: T): T { 
+  return createReactive(raw, true, true);
+};
+
+export function shallowReadonly<T extends ObjectOfStringKey>(raw: T): T { 
   return createReactive(raw, false, true);
 };
 
