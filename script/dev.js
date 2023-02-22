@@ -27,7 +27,7 @@ function build(env) {
     },
     define: { dev: args._.includes('dev'), ...env },
     entryPoints: [path.join(__dirname, '../src/main.ts')],
-    outfile: '/dev/test.js'
+    outfile: '/dev/index.js'
   }).then(res => {
     console.log(
 `                ⠰⢷⢿.
