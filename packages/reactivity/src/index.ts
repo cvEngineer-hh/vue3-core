@@ -3,12 +3,12 @@ import { createReactive, effect, trigger, track } from './effect';
 
 export * from './effect';
 
-export function ref<T extends string | number | boolean | null>(value: T) { 
+export function ref<T extends string | number | boolean | null>(value: T): { value: T } { 
   const obj = { value };
   // 该属性用于区分 ref(value) 与 reactive({ value })
-  Reflect.defineProperty(obj, '_is_ref', true);
+  Reflect.set(obj, '_is_ref', true);
 
-  return obj;
+  return createReactive(obj, false);
 };
 
 export function reactive<T extends ObjectOfStringKey>(raw: T): T { 
