@@ -58,8 +58,6 @@ export function createReactive<T extends ObjectOfStringKey>(raw: T, isShallow: b
         return true;
       };
 
-      if (Reflect.get(target, key) === value) return true;
-
       // 对于数组，设置元素的时候元素位置可能会超出自身长度，此时相当于 Object 的add，需要特殊处理
       const type = Array.isArray(target) && key !== 'length'
         ? Number(key) < target.length ? optionType.set : optionType.add
