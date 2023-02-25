@@ -3,13 +3,13 @@ const path = require('path');
 const { exec } = require('node:child_process');
 
 const app = express();
-module.exports.scerver = function scerver(portNumber = 3000) {
+module.exports.server = function server(portNumber = 3000) {
   portIsActive(portNumber)
     .then(res => {
-      createScerver(portNumber);
+      createServer(portNumber);
     })
     .catch(err => {
-      scerver(Number(portNumber) + 1);
+      server(Number(portNumber) + 1);
     });
 };
 
@@ -21,7 +21,7 @@ function portIsActive(portNumber) {
   })
 };
 
-function createScerver(portNumber) {
+function createServer(portNumber) {
   const { address } = require('os').networkInterfaces().WLAN.find(item => item.family === 'IPv4');
   const Network = `http://${address}:${portNumber}`;
   const Local = `http://localhost:${portNumber}`;
@@ -38,6 +38,6 @@ function createScerver(portNumber) {
 };
 
 // 刷新暂未实现
-module.exports.resetScerve = function() {
+module.exports.resetserver = function() {
   
 };

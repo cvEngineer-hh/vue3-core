@@ -9,7 +9,7 @@ require('fs').readFile('.env.development', 'utf-8', (err, data) => {
 });
 
 const args = require('minimist')(process.argv.slice(2));
-const { scerver } = require('./createServer');
+const { server } = require('./createServer');
 function build(env) {
   const path = require('path');
   const format = args.f || 'esm';
@@ -44,7 +44,7 @@ function build(env) {
       `
     );
     
-    scerver();
+    server();
   })
 };
 
