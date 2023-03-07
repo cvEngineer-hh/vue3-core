@@ -27,7 +27,7 @@ function createServer(portNumber) {
   const Local = `http://localhost:${portNumber}`;
 
   const startTime = Date.now();
-  app.use('/', express.static(path.join(__dirname, '../dev')));
+  app.use('/', express.static(path.join(__dirname, '../')));
   app.listen(portNumber);
 
   console.log('\033[42;30m启用服务器，\033[0m 耗时：', Date.now() - startTime, 'ms\033[0m');
